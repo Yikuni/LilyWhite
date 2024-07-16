@@ -1,35 +1,88 @@
 import {useState} from "react";
-import {Avatar, Button, Space, Input} from "antd";
+import {Avatar, Button, Space, Input, Alert, Tooltip} from "antd";
 import {PlusOutlined, SendOutlined, UserOutlined} from "@ant-design/icons";
 import styles from './dialog.module.css'
 const { TextArea } = Input;
-
+import context from "@/public/config";
 export default function Dialog(){
-    let initialMessages = ['我是AI助理，有什么需要帮助的吗？']
+    let initialMessages = [context.chat.AIMessageHint]
     const [messages, setMessages] = useState(initialMessages)
     const [message, setMessage] = useState('')
+    const [finished, setFinished] = useState(true)
+    const [isError, setIsError] = useState(false)   // 显示报错
+    const [errMsg, setErrMsg] = useState('')
     const handleInputChange = (event: any) => {
         setMessage(event.target.value);
     }
+    function handleError(errStr: string, prevMessages: string[]){
+        console.log("error", errStr)
+        setMessages(prevMessages)
+        setErrMsg(errStr)
+        setIsError(true)
+        setTimeout(()=>setIsError(false), 5000)
+    }
+
     function askQuestion(){
-        setMessages(prevMessages => [...prevMessages, message]);
-        setMessages(prevMessages => [...prevMessages, message]); // 回复
-        // let prevMessages = messages
-        // let msg = ''
-        // let history: any[] = [{"role": "system", "content": "你是 Kimi，由 Moonshot AI 提供的人工智能助手，你更擅长中文和英文的对话。你会为用户提供安全，有帮助，准确的回答。同时，你会拒绝一切涉及恐怖主义，种族歧视，黄色暴力等问题的回答。Moonshot AI 为专有名词，不可翻译成其他语言。"},]
-        // for (let i = 1; i < prevMessages.length; i++) {
-        //     history.push({
-        //         "role": i % 2 == 1? "user": "assistant",
-        //         "content": prevMessages[i],
-        //     })
-        // }
-        // kimi(history, (msgSlice: string)=>{
-        //     msg += msgSlice
-        //     setMessages([...prevMessages, msg]);    // answer
-        // }).then(()=>{
-        //     // 回复完毕
-        //     console.log("回复完毕")
-        // })
+        let prevMessages = [...messages, message]
+        setMessages(prevMessages)
+        let reply = ''
+        let queryMessages = {
+            messages: [context.chat.AIPrompt, ...prevMessages.slice(1, prevMessages.length)]
+        }
+        fetch(context.chat.chatUrl,{
+            method: 'post',
+            headers: {"Content-Type": "text/event-stream"},
+            body: JSON.stringify(queryMessages)
+        }).then(async (response) =>{
+            setFinished(false)
+            let _finished = false
+            console.log(finished)
+            if (response.body == null){
+                handleError("response body is null", prevMessages)
+                return
+            }
+            if(response.status != 200){
+                const reader = response.body.getReader();
+                const {value } = await reader.read();
+                let msg = new TextDecoder().decode(value)
+                handleError(msg, prevMessages)
+                return
+            }
+
+            setMessage('')  // 清空输入栏
+            let endIndex = 0
+            // 一点点地显示文字
+            const typeMessage = setInterval(()=>{
+                if (endIndex < reply.length){
+                    endIndex ++
+                    setMessages([...prevMessages, reply.slice(0, endIndex)]);
+                }
+                if (_finished && endIndex >= reply.length){
+                    console.log("clear interval")
+                    clearInterval(typeMessage)
+                }
+            }, 20)
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder()
+            // 处理以流的形式返回的数据
+            while (true){
+                const { done, value } = await reader.read();
+                if (done){
+                    setFinished(true)
+                    _finished = true
+                    break
+                }
+                let msg = decoder.decode(value)
+                console.log(msg)
+                reply += msg
+            }
+        }).catch((e)=>{
+            handleError(e.toString(), prevMessages)
+            setFinished(true)
+
+        })
+
     }
     return(
         <>
@@ -37,23 +90,23 @@ export default function Dialog(){
                 display: 'flex', overflowY: 'auto', height: 290,
                 marginTop: -30
             }}>
+            {isError?<Alert message={errMsg} type="error"/>:''}
             {messages.map((msg, index)=> (
                 <div>
                     {index % 2 == 1 ?
                         <div className={styles.right}>
                             <Space>
                                 {msg}
-                                <Avatar size={32} icon={<UserOutlined/>} style={{
-                                    marginTop: 0
-                                }}/>
+                                <Avatar size={32} icon={<UserOutlined/>} className={styles.avater}/>
                             </Space>
                         </div> :
                         <div className={styles.left}>
                             <Space>
-                                <Avatar size={32} icon={<UserOutlined/>}/>
+                                <Avatar size={32} icon={<UserOutlined/>} className={styles.avater}/>
                                 {msg}
                             </Space>
                         </div>}
+                    {/*底部的输入栏*/}
                     <div style={{
                         position: 'absolute',
                         bottom: 10,
@@ -63,15 +116,20 @@ export default function Dialog(){
                         display: "flex"
                     }}>
                         <TextArea rows={1} placeholder="请输入您的问题" value={message}
-                                  onChange={handleInputChange}/>
+                                  onChange={handleInputChange} onKeyDown={(e)=>{if(e.key == "Enter") askQuestion()}}/>
 
-                        <Button type='text' size='large' icon={<PlusOutlined/>}
-                                onClick={()=>{setMessages(initialMessages)}}/>
-                        <Button type='text' size='large' icon={<SendOutlined/>} onClick={askQuestion}/>
+                        <Tooltip title={"新建对话"}>
+                            <Button type='text' size='large' icon={<PlusOutlined/>}
+                                    onClick={()=>{setMessages(initialMessages)}}/>
+                        </Tooltip>
+                        <Tooltip title={"发送"}>
+                            <Button type='text' size='large' icon={<SendOutlined/>} onClick={askQuestion}/>
+                        </Tooltip>
 
                     </div>
 
                 </div>
+
 
 
             ))}

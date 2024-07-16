@@ -16,8 +16,8 @@ export default function DialogBox(){
                 !showButton?
                     <div style={{
                         position: "fixed", zIndex: 90 ,top: '50%', left: '75%',
-                        width: 360,
-                        height: 450,
+                        width: '22%',
+                        height: '45%',
                         backgroundColor: '#ffffff',
                         borderRadius: 20,
                         boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1',
